@@ -1,0 +1,5 @@
+services:
+  konsole:
+    build: .
+    environment:
+      - BOT_TOKEN=${BOT_TOKEN} # .env
