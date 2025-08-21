@@ -23,7 +23,7 @@ RUN apt-get update && apt-get install -y \
     util-linux \
     && rm -rf /var/lib/apt/lists/* \
     && addgroup --system user \
-    && adduser --system --ingroup user --disabled-password --shell /bin/sh user
+    && adduser --system --ingroup user --disabled-password --shell /bin/bash user
 
 RUN echo "user hard nproc 64" >> /etc/security/limits.conf
 
