@@ -17,6 +17,7 @@ import (
 
 var (
 	botToken = os.Getenv("BOT_TOKEN")
+	ownerID  = os.Getenv("OWNER_ID")
 
 	allowedContexts = []discordgo.InteractionContextType{
 		discordgo.InteractionContextGuild,
@@ -27,7 +28,7 @@ var (
 	commands = []*discordgo.ApplicationCommand{
 		{
 			Name:        "exec",
-			Description: "Execute a shell command in a secure sandbox",
+			Description: "Execute a shell command in a secure, unprivileged sandbox.",
 			Contexts:    &allowedContexts,
 			Options: []*discordgo.ApplicationCommandOption{
 				{
@@ -38,15 +39,30 @@ var (
 				},
 			},
 		},
+		{
+			Name:        "execroot",
+			Description: "Execute a shell command as root. (BOT OWNER ONLY)",
+			Contexts:    &allowedContexts,
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Type:        discordgo.ApplicationCommandOptionString,
+					Name:        "command",
+					Description: "The command to execute as root",
+					Required:    true,
+				},
+			},
+		},
 	}
+
 	commandHandlers = map[string]func(s *discordgo.Session, i *discordgo.InteractionCreate){
-		"exec": handleExecCommand,
+		"exec":     handleExecCommand,
+		"execroot": handleExecRootCommand,
 	}
 )
 
 func main() {
-	if botToken == "" {
-		log.Fatal("BOT_TOKEN environment variable must be set")
+	if botToken == "" || ownerID == "" {
+		log.Fatal("FATAL: BOT_TOKEN and OWNER_ID environment variables must be set")
 	}
 
 	dg, err := discordgo.New("Bot " + botToken)
@@ -56,12 +72,15 @@ func main() {
 
 	dg.AddHandler(func(s *discordgo.Session, r *discordgo.Ready) {
 		log.Printf("Logged in as: %v#%v", s.State.User.Username, s.State.User.Discriminator)
+
 		log.Println("Registering commands...")
-		_, err := s.ApplicationCommandCreate(s.State.User.ID, "", commands[0])
-		if err != nil {
-			log.Fatalf("Cannot create slash command: %v", err)
+		for _, v := range commands {
+			_, err := s.ApplicationCommandCreate(s.State.User.ID, "", v)
+			if err != nil {
+				log.Panicf("Cannot create command '%v': %v", v.Name, err)
+			}
 		}
-		log.Println("Commands registered successfully.")
+		log.Println("All commands registered successfully.")
 	})
 
 	dg.AddHandler(func(s *discordgo.Session, i *discordgo.InteractionCreate) {
@@ -93,7 +112,7 @@ func handleExecCommand(s *discordgo.Session, i *discordgo.InteractionCreate) {
 
 	commandStr := i.ApplicationCommandData().Options[0].StringValue()
 
-	initialContent := fmt.Sprintf("`$ %s`\n```bash\nExecuting...\n```", commandStr)
+	initialContent := fmt.Sprintf("`$ %s`\n```bash\nExecuting as 'user'...\n```", commandStr)
 	msg, err := s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
 		Content: initialContent,
 	})
@@ -102,14 +121,48 @@ func handleExecCommand(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		return
 	}
 
-	go streamCommandOutput(s, i, msg, commandStr)
+	go streamCommandOutput(s, i, msg, commandStr, "user")
 }
 
-func streamCommandOutput(s *discordgo.Session, i *discordgo.InteractionCreate, msg *discordgo.Message, commandStr string) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+func handleExecRootCommand(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	if i.User.ID != ownerID {
+		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Content: "❌ You do not have permission to use this command.",
+				Flags:   discordgo.MessageFlagsEphemeral, // Message is only visible to the user
+			},
+		})
+		return
+	}
+
+	err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
+	})
+	if err != nil {
+		log.Printf("Error sending initial response: %v", err)
+		return
+	}
+
+	commandStr := i.ApplicationCommandData().Options[0].StringValue()
+
+	initialContent := fmt.Sprintf("`$ %s`\n```bash\nExecuting as 'root'...\n```", commandStr)
+	msg, err := s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
+		Content: initialContent,
+	})
+	if err != nil {
+		log.Printf("Error creating followup message: %v", err)
+		return
+	}
+
+	go streamCommandOutput(s, i, msg, commandStr, "root")
+}
+
+func streamCommandOutput(s *discordgo.Session, i *discordgo.InteractionCreate, msg *discordgo.Message, commandStr string, execUser string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "su", "-s", "/bin/sh", "-c", commandStr, "user")
+	cmd := exec.CommandContext(ctx, "su", "-s", "/bin/bash", "-c", commandStr, execUser)
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -125,7 +178,7 @@ func streamCommandOutput(s *discordgo.Session, i *discordgo.InteractionCreate, m
 
 	var outputBuffer strings.Builder
 	scanner := bufio.NewScanner(stdout)
-	ticker := time.NewTicker(500 * time.Millisecond)
+	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 
 	var hasNewOutput bool
@@ -150,7 +203,7 @@ func streamCommandOutput(s *discordgo.Session, i *discordgo.InteractionCreate, m
 		case <-commandDone:
 			status := "Command finished."
 			if ctx.Err() != nil {
-				status = "Command killed (30s timeout)."
+				status = "Command killed (60s timeout)."
 			}
 			editMessageWithContent(s, i, msg, commandStr, outputBuffer.String(), true, status)
 			cmd.Wait()

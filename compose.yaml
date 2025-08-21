@@ -2,4 +2,5 @@ services:
   konsole:
     build: .
     environment:
-      - BOT_TOKEN=${BOT_TOKEN} # .env
+      - BOT_TOKEN=${BOT_TOKEN}
+      - OWNER_ID=${OWNER_ID}

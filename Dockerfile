@@ -1,12 +1,12 @@
-FROM golang:1.24.2-bullseye AS builder
+FROM golang:1.24.2 AS builder
 
 WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
-COPY *.go ./
+COPY main.go ./
 RUN CGO_ENABLED=0 GOOS=linux go build -o /konsole
 
-FROM debian:bullseye-slim
+FROM debian:bookworm
 
 RUN apt-get update && apt-get install -y \
     traceroute \
