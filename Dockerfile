@@ -25,6 +25,8 @@ RUN apt-get update && apt-get install -y \
     && addgroup --system user \
     && adduser --system --ingroup user --disabled-password --shell /bin/sh user
 
+RUN echo "user hard nproc 64" >> /etc/security/limits.conf
+
 COPY --from=builder /konsole /konsole
 
 CMD ["/konsole"]
