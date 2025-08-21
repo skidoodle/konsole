@@ -6,7 +6,7 @@ RUN go mod download
 COPY main.go ./
 RUN CGO_ENABLED=0 GOOS=linux go build -o /konsole
 
-FROM debian:bookworm
+FROM debian:bookwormwa
 
 RUN apt-get update && apt-get install -y \
     traceroute \
@@ -24,8 +24,6 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/* \
     && addgroup --system user \
     && adduser --system --ingroup user --disabled-password --shell /bin/bash user
-
-RUN echo "user hard nproc 64" >> /etc/security/limits.conf
 
 COPY --from=builder /konsole /konsole
 

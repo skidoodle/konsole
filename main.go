@@ -162,7 +162,7 @@ func streamCommandOutput(s *discordgo.Session, i *discordgo.InteractionCreate, m
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "su", "-s", "/bin/bash", "-c", commandStr, execUser)
+	cmd := exec.CommandContext(ctx, "su", "-", execUser, "-c", commandStr)
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
